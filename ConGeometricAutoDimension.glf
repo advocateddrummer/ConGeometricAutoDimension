@@ -214,10 +214,13 @@ proc validateParams {u widget} {
 ############################################################################
 proc pickCon { { firstRun false } } {
 
-    global Con origPointMode PoleCon beginspacing endspacing maxspacing infoMessage
+    global Con origPointMode origColor PoleCon adjDomains beginspacing endspacing maxspacing infoMessage
 
     # Reset PointMode if a connector is already selected
-    if [info exists Con] { $Con setRenderAttribute PointMode $origPointMode }
+    if [info exists Con] {
+      $Con setRenderAttribute PointMode $origPointMode
+      $Con setColor $origColor
+    }
 
     # If a pole had been created (for the previous connector), delete it
     if [info exists PoleCon] { $PoleCon delete }
@@ -231,9 +234,12 @@ proc pickCon { { firstRun false } } {
         # Record the original PointMode rendering attribute to that it may be
         # restored
         set origPointMode [$Con getRenderAttribute PointMode]
+        set origColor [$Con getColor]
     }
 
     if {[llength $Con] == 1} {
+
+        set adjDomains [pw::Domain getDomainsFromConnectors $Con]
 
         set length [$Con getTotalLength]
         set dim [$Con getDimension]
@@ -295,7 +301,7 @@ proc pickCon { { firstRun false } } {
 ############################################################################
 proc autoDim { preview } {
 
-    global Con infoMessage
+    global Con infoMessage adjDomains origColor
 
     if {![info exists Con] || ![colorCheck]} { exit }
 
@@ -372,6 +378,8 @@ proc autoDim { preview } {
         #TODO: Add ability to preview the connector here without actually
         #      applying the changes.
         if { $preview } {
+          pw::Script setDomainUnstructuredSkipMeshing 1
+
           $Con setRenderAttribute PointMode None
           set previewModifier [pw::Application begin Modify $Con]
 
@@ -400,10 +408,23 @@ proc autoDim { preview } {
           lappend infoMessages "Preview mode enabled; press Apply to accept changes\n"
 
           pw::Display update
-          after 3000
-          $previewModifier abort
+          #after 3000
+          $previewModifier end
+          # Turn points back on
           $Con setRenderAttribute PointMode All
-        }
+        } else {
+
+          $Con setColor $origColor
+          $Con setRenderAttribute ColorMode Automatic
+
+          pw::Script setDomainUnstructuredSkipMeshing 0
+
+          # Refine any domain affected by changing the connector.
+            set initMode [pw::Application begin UnstructuredSolver $adjDomains]
+              if { 0 != [catch { $initMode run Refine } ] } { puts "Refine failed for domains: $adjDomains" }
+              $initMode end
+          }
+
     }
 
     if [llength $errorMessages] {
@@ -421,13 +442,18 @@ proc autoDim { preview } {
 ############################################################################
 proc done {} {
 
-    global Con PoleCon origPointMode
+    global Con PoleCon origPointMode origColor
 
-    if [info exists Con] { $Con setRenderAttribute PointMode $origPointMode }
+    if [info exists Con] {
+      $Con setRenderAttribute PointMode $origPointMode
+      $Con setColor $origColor
+    }
     if [info exists PoleCon] { $PoleCon delete }
 
     exit
 }
+
+pw::Script setDomainUnstructuredSkipMeshing 1
 
 .f.bspce configure -background #EBAD99
 .f.espce configure -background #EBAD99
@@ -453,6 +479,7 @@ if { [llength $ents(Connectors)] == 1} {
   # Record the original PointMode rendering attribute to that it may be
   # restored
   set origPointMode [$Con getRenderAttribute PointMode]
+  set origColor [$Con getColor]
   pickCon true
 }
 
